@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # MySQL数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: mib-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mib_platform_2024}
+      MYSQL_DATABASE: mib_platform
+      MYSQL_USER: mib_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mib_secure_2024}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/conf/mysql.cnf:/etc/mysql/conf.d/custom.cnf
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    ports:
+      - "3316:3306"
+    networks:
+      - mib-network
+    restart: unless-stopped
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: mib-redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6389:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - mib-network
+    restart: unless-stopped
+
+  # Go后端服务 - MIB解析和配置生成
+  mib-backend:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.backend
+    container_name: mib-backend
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: mib_user
+      DB_PASSWORD: ${MYSQL_PASSWORD:-mib_secure_2024}
+      DB_NAME: mib_platform
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_2024}
+      GIN_MODE: release
+    ports:
+      - "8080:8080"
+    volumes:
+      - mib_uploads:/app/uploads
+      - mib_data:/app/data
+    networks:
+      - mib-network
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - redis
+
+  # Next.js前端服务 - MIB管理界面
+  mib-frontend:
+    build:
+      context: ../
+      dockerfile: deployment/Dockerfile.frontend
+    container_name: mib-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    networks:
+      - mib-network
+    restart: unless-stopped
+    depends_on:
+      - mib-backend
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  mib_uploads:
+    driver: local
+  mib_data:
+    driver: local
+
+networks:
+  mib-network:
+    driver: bridge

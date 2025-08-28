@@ -1,0 +1,76 @@
+# MIB Platform - Go Backend Dockerfile
+# Multi-stage build for production optimization
+
+# Stage 1: Build stage
+FROM golang:1.21-alpine AS builder
+
+LABEL maintainer="UltraThink Team <ultrathink@mib-platform.com>"
+LABEL description="MIB Platform Go Backend - Build Stage"
+
+# 设置工作目录
+WORKDIR /build
+
+# 安装构建依赖
+RUN apk add --no-cache git gcc musl-dev
+
+# 复制Go模块文件
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download && go mod verify
+
+# 复制源代码
+COPY backend/ ./
+
+# 构建二进制文件
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s -extldflags '-static'" \
+    -a -installsuffix cgo \
+    -o mib-backend main.go
+
+# Stage 2: Runtime stage  
+FROM alpine:latest
+
+LABEL maintainer="UltraThink Team <ultrathink@mib-platform.com>"
+LABEL description="MIB Platform Go Backend - Production"
+LABEL version="1.0.0"
+
+# 安装运行时依赖
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    curl \
+    && update-ca-certificates
+
+# 创建应用用户
+RUN addgroup -g 1000 mib && \
+    adduser -D -s /bin/sh -u 1000 -G mib mib
+
+# 设置工作目录
+WORKDIR /app
+
+# 创建必要目录
+RUN mkdir -p /app/data /app/uploads /app/logs /app/config && \
+    chown -R mib:mib /app
+
+# 从构建阶段复制二进制文件
+COPY --from=builder /build/mib-backend /app/
+COPY --chown=mib:mib deployment/config/ /app/config/
+
+# 设置权限
+RUN chmod +x /app/mib-backend
+
+# 切换到应用用户
+USER mib
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/api/health || exit 1
+
+# 暴露端口
+EXPOSE 8080
+
+# 设置环境变量
+ENV GIN_MODE=release
+ENV TZ=Asia/Shanghai
+
+# 启动命令
+CMD ["/app/mib-backend"]
