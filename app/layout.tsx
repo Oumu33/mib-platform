@@ -3,8 +3,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'MIB文件管理平台',
-  description: 'SNMP MIB文件管理与配置生成平台',
-  generator: 'Next.js',
+  description: '现代化的 SNMP MIB 文件管理与配置生成平台',
 }
 
 export default function RootLayout({
